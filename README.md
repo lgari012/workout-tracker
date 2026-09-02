@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Workout Tracker
 
-## Getting Started
+A web app for logging workouts and tracking progress over time. I built it because the apps I tried were either bloated with features I didn't need or locked the useful parts behind a paywall. I wanted something simple that I would actually use, and that other people could use without paying for a premium tier.
 
-First, run the development server:
+## What it does
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Log a workout, add exercises to it, and record the weight and reps for each set. Body weight is tracked separately so you can see how it moves alongside your lifts.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The goal is to eventually have it suggest progression — telling you when to add weight or push a rep range based on what you have already done.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Tech stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+* **PostgreSQL** — data storage
+* **TypeScript / Node.js** — API routes
+* **Next.js** — full-stack framework
+* **AWS** — planned deployment
 
-## Learn More
+## Data model
 
-To learn more about Next.js, take a look at the following resources:
+The data is split across four tables: `workouts`, `exercises`, `sets`, and `weightlog`. A workout is a single session on a date. An exercise is a movement that gets reused across sessions. A set links the two together with the weight and reps.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Splitting it this way instead of keeping one flat log means the data can be sliced however you want. You can look at every set of bench press you have ever done, or total volume for one session, or your heaviest lift per exercise — instead of scrolling through one long list and doing the math yourself.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes on how it is built
 
-## Deploy on Vercel
+I wrote the SQL by hand rather than using an ORM. I wanted to understand what the database was actually doing — how joins work, how aggregates group data — instead of having it abstracted away.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The schema is kept in a versioned `.sql` file so the whole database can be rebuilt from scratch on any machine.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Status
+
+Work in progress.
+
+### Done
+
+* PostgreSQL schema with foreign key relationships
+* API routes for listing exercises and calculating personal records
+
+### Next
+
+* Frontend pages to view and log workouts
+* Forms for adding workouts and sets
+* AWS deployment
+* Progression suggestions
