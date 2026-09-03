@@ -35,10 +35,10 @@ Work in progress.
 
 * PostgreSQL schema with foreign key relationships
 * API routes for listing exercises and calculating personal records
+* Frontend pages to view and log workouts
 
 ### Next
 
-* Frontend pages to view and log workouts
 * Forms for adding workouts and sets
 * AWS deployment
 * Progression suggestions
