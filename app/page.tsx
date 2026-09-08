@@ -1,23 +1,44 @@
 import db from "@/lib/db";
-import { signIn } from "@/auth";
+import { auth, signIn, signOut } from "@/auth";
 
 export default async function ExercisesPage() {
-  const exercises = await db.query("SELECT * FROM exercise");
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  const query = userId 
+    ? { text: "SELECT * FROM exercise WHERE user_id IS NULL OR user_id = $1", values: [userId] }
+    : { text: "SELECT * FROM exercise WHERE user_id IS NULL", values: [] };
+
+  const exercises = await db.query(query);
 
   return (
     <main className="p-8 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">All Exercises</h1>
-        <form
-          action={async () => {
-            "use server";
-            await signIn("google");
-          }}
-        >
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
-            Sign In with Google
-          </button>
-        </form>
+        
+        {userId ? (
+          <form
+            action={async () => {
+              "use server";
+              await signOut();
+            }}
+          >
+            <button type="submit" className="bg-gray-200 text-gray-800 px-4 py-2 rounded text-sm hover:bg-gray-300">
+              Sign Out ({session.user?.email})
+            </button>
+          </form>
+        ) : (
+          <form
+            action={async () => {
+              "use server";
+              await signIn("google");
+            }}
+          >
+            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+              Sign In with Google
+            </button>
+          </form>
+        )}
       </div>
       
       {exercises.rows.length === 0 ? (
