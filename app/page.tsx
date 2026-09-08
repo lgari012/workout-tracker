@@ -1,11 +1,24 @@
 import db from "@/lib/db";
+import { signIn } from "@/auth";
 
 export default async function ExercisesPage() {
   const exercises = await db.query("SELECT * FROM exercise");
 
   return (
     <main className="p-8 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">All Exercises</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">All Exercises</h1>
+        <form
+          action={async () => {
+            "use server";
+            await signIn("google");
+          }}
+        >
+          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+            Sign In with Google
+          </button>
+        </form>
+      </div>
       
       {exercises.rows.length === 0 ? (
         <div className="p-12 text-center border-2 border-dashed border-gray-200 rounded-lg text-gray-500">
