@@ -66,3 +66,20 @@ CREATE TABLE weightlog (
   weight NUMERIC NOT NULL,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Updated snippets for schema.sql
+CREATE TABLE IF NOT EXISTS workouts (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) DEFAULT 'Workout',
+  date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sets (
+  id SERIAL PRIMARY KEY,
+  workout_id INT REFERENCES workouts(id) ON DELETE CASCADE,
+  exercise_id INT REFERENCES exercise(id) ON DELETE CASCADE,
+  weight NUMERIC,
+  reps INT,
+  set_number INT DEFAULT 1
+);
