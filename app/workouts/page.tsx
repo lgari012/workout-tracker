@@ -6,11 +6,15 @@ export default function NewWorkoutPage() {
   const [sets, setSets] = useState<{ id: string; exerciseId: string; weight: string; reps: string }[]>([]);
   const [exercises, setExercises] = useState<{ id: number; name: string; muscle_group: string }[]>([]);
   
-  // New state for Date, Notes, and inline Messages
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
-  const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split("T")[0];
+  });
   
+  const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -21,7 +25,8 @@ export default function NewWorkoutPage() {
   useEffect(() => {
     async function loadExercises() {
       try {
-        const res = await fetch("/api/exercise");
+        // FIXED: Pluralized the API route correctly to /api/exercises
+        const res = await fetch("/api/exercises");
         if (res.ok) {
           const data = await res.json();
           setExercises(data);
@@ -36,7 +41,7 @@ export default function NewWorkoutPage() {
   }, []);
 
   const handleAddSet = () => {
-    setMessage(null); // Clear any previous errors when interacting
+    setMessage(null);
     const newSet = { 
       id: crypto.randomUUID(), 
       exerciseId: "", 
@@ -74,7 +79,7 @@ export default function NewWorkoutPage() {
 
     try {
       const payload = {
-        name: "My Workout",
+        name: name.trim(),
         date,
         notes,
         sets: sets.map((s, index) => ({
@@ -94,6 +99,7 @@ export default function NewWorkoutPage() {
       if (res.ok) {
         setMessage({ text: "Workout logged successfully!", type: "success" });
         setSets([]);
+        setName("");
         setNotes("");
       } else {
         const errorData = await res.json();
@@ -138,16 +144,27 @@ export default function NewWorkoutPage() {
         </div>
       )}
 
-      {/* Top Level Workout Details */}
       <div className="bg-white p-6 border rounded-lg shadow-sm mb-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full sm:w-auto border rounded px-3 py-2 text-gray-900"
-          />
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Workout Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Pull Day (Optional)"
+              className="w-full border rounded px-3 py-2 text-gray-900"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full sm:w-auto border rounded px-3 py-2 text-gray-900"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
@@ -161,7 +178,6 @@ export default function NewWorkoutPage() {
         </div>
       </div>
 
-      {/* Sets Loop */}
       {sets.length === 0 ? (
         <div className="p-12 text-center border-2 border-dashed border-gray-200 rounded-lg text-gray-500">
           <p>No sets added yet.</p>

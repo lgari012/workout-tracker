@@ -26,17 +26,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const client = await db.connect(); // Changed to db.connect()
+  const client = await db.connect();
 
   try {
-    const { name, date, sets } = await request.json();
+    // 1. Destructure notes and date from the incoming JSON
+    const { name, date, notes, sets } = await request.json();
 
     if (!sets || !Array.isArray(sets) || sets.length === 0) {
       return NextResponse.json({ error: "Workout must contain at least one set" }, { status: 400 });
     }
 
     for (const set of sets) {
-      // Enhanced validation to catch NaN or explicitly null values
       if (
         set.weight == null || Number.isNaN(set.weight) || 
         set.reps == null || Number.isNaN(set.reps) || 
@@ -57,9 +57,10 @@ export async function POST(request: Request) {
 
     await client.query("BEGIN");
 
+    // 2. Add notes to the INSERT statement
     const workoutResult = await client.query(
-      "INSERT INTO workouts (name, date, user_id) VALUES ($1, COALESCE($2, NOW()), $3) RETURNING *",
-      [name || "Workout", date || null, session.user.id]
+      "INSERT INTO workouts (name, date, notes, user_id) VALUES ($1, COALESCE($2, NOW()), $3, $4) RETURNING *",
+      [name || "Workout", date || null, notes || null, session.user.id]
     );
     const workoutId = workoutResult.rows[0].id;
 
