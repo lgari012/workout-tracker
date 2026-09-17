@@ -9,14 +9,44 @@ export async function GET() {
   }
 
   try {
+    // Limit workouts first in a CTE, then join sets to prevent truncating mid-workout
     const result = await db.query(
-      "SELECT * FROM workouts WHERE user_id = $1 ORDER BY date DESC",
+      `WITH recent_workouts AS (
+         SELECT id, name, date 
+         FROM workouts 
+         WHERE user_id = $1 
+         ORDER BY date DESC, id DESC 
+         LIMIT 10
+       )
+       SELECT rw.id AS workout_id, rw.name AS workout_name, rw.date, 
+              s.exercise_id, s.weight, s.reps, s.set_number
+       FROM recent_workouts rw
+       JOIN sets s ON rw.id = s.workout_id
+       ORDER BY rw.date DESC, rw.id DESC, s.set_number ASC`,
       [session.user.id]
     );
-    return NextResponse.json(result.rows);
+
+    const workoutsMap = new Map();
+    for (const row of result.rows) {
+      if (!workoutsMap.has(row.workout_id)) {
+        workoutsMap.set(row.workout_id, {
+          id: row.workout_id,
+          name: row.workout_name,
+          date: row.date,
+          sets: []
+        });
+      }
+      workoutsMap.get(row.workout_id).sets.push({
+        exerciseId: row.exercise_id,
+        weight: row.weight,
+        reps: row.reps,
+      });
+    }
+
+    return NextResponse.json(Array.from(workoutsMap.values()));
   } catch (error) {
     console.error("Failed to fetch workouts:", error);
-    return NextResponse.json({ error: "Failed to fetch workouts" }, { status: 500 });
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
 
@@ -26,65 +56,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const client = await db.connect();
-
   try {
-    // 1. Destructure notes and date from the incoming JSON
-    const { name, date, notes, sets } = await request.json();
+    const body = await request.json();
+    const { name, date, notes, sets } = body;
 
-    if (!sets || !Array.isArray(sets) || sets.length === 0) {
-      return NextResponse.json({ error: "Workout must contain at least one set" }, { status: 400 });
-    }
+    // Start a transaction so we don't save a workout if the sets fail
+    await db.query("BEGIN");
 
-    for (const set of sets) {
-      if (
-        set.weight == null || Number.isNaN(set.weight) || 
-        set.reps == null || Number.isNaN(set.reps) || 
-        !set.exerciseId
-      ) {
-        return NextResponse.json({ error: "Each set must include valid numerical weight, reps, and an exerciseId" }, { status: 400 });
-      }
-
-      const exerciseCheck = await client.query(
-        "SELECT id FROM exercise WHERE id = $1 AND (user_id IS NULL OR user_id = $2)",
-        [set.exerciseId, session.user.id]
-      );
-
-      if (exerciseCheck.rows.length === 0) {
-        return NextResponse.json({ error: `Invalid exercise ID: ${set.exerciseId}` }, { status: 400 });
-      }
-    }
-
-    await client.query("BEGIN");
-
-    // 2. Add notes to the INSERT statement
-    const workoutResult = await client.query(
-      "INSERT INTO workouts (name, date, notes, user_id) VALUES ($1, COALESCE($2, NOW()), $3, $4) RETURNING *",
-      [name || "Workout", date || null, notes || null, session.user.id]
+    const workoutRes = await db.query(
+      `INSERT INTO workouts (user_id, name, date, notes) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING id`,
+      [session.user.id, name || "Workout", date, notes || null]
     );
-    const workoutId = workoutResult.rows[0].id;
+    
+    const workoutId = workoutRes.rows[0].id;
 
-    const insertedSets = [];
     for (const set of sets) {
-      const setResult = await client.query(
-        "INSERT INTO sets (workout_id, exercise_id, weight, reps, set_number) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-        [workoutId, set.exerciseId, set.weight, set.reps, set.setNumber || 1]
+      await db.query(
+        `INSERT INTO sets (workout_id, exercise_id, weight, reps, set_number) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [workoutId, set.exerciseId, set.weight, set.reps, set.setNumber]
       );
-      insertedSets.push(setResult.rows[0]);
     }
 
-    await client.query("COMMIT");
+    await db.query("COMMIT");
 
-    return NextResponse.json({
-      workout: workoutResult.rows[0],
-      sets: insertedSets,
-    }, { status: 201 });
-
+    return NextResponse.json({ success: true, workoutId });
   } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("Failed to log workout transaction:", error);
-    return NextResponse.json({ error: "Failed to log workout" }, { status: 500 });
-  } finally {
-    client.release();
+    await db.query("ROLLBACK");
+    console.error("Failed to save workout:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

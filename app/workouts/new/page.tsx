@@ -5,13 +5,34 @@ import { useRouter } from "next/navigation";
 
 type SetRecord = {
   id: string;
-  muscleGroup: string;
   exerciseId: string;
   weight: string;
   reps: string;
 };
 
-// Smart helper to determine the likely weight jump based on equipment type
+// Explicit types for the network response to eliminate 'any'
+type PastWorkoutSet = {
+  exerciseId: number;
+  weight: number | string;
+  reps: number;
+};
+
+type PastWorkout = {
+  id: number;
+  name: string | null;
+  date: string;
+  sets: PastWorkoutSet[];
+};
+
+const SPLIT_PRESETS: Record<string, string[]> = {
+  "Push": ["Chest", "Shoulders", "Triceps"],
+  "Pull": ["Back", "Biceps"],
+  "Legs": ["Legs"],
+  "Upper": ["Chest", "Back", "Shoulders", "Biceps", "Triceps"],
+  "Lower": ["Legs", "Core"],
+  "Full Body": ["Chest", "Back", "Shoulders", "Legs", "Biceps", "Triceps", "Core"]
+};
+
 function getWeightStep(exerciseName?: string) {
   if (!exerciseName) return 5;
   const name = exerciseName.toLowerCase();
@@ -25,15 +46,8 @@ function getWeightStep(exerciseName?: string) {
   ) {
     return 10;
   }
-  
-  if (name.includes("dumbbell")) {
-    return 5;
-  }
-  
-  if (name.includes("barbell") || name.includes("squat") || name.includes("deadlift")) {
-    return 5; 
-  }
-  
+  if (name.includes("dumbbell")) return 5;
+  if (name.includes("barbell") || name.includes("squat") || name.includes("deadlift")) return 5; 
   return 5;
 }
 
@@ -42,6 +56,7 @@ export default function NewWorkoutPage() {
   
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [exercises, setExercises] = useState<{ id: number; name: string; muscle_group: string }[]>([]);
+  const [pastWorkouts, setPastWorkouts] = useState<PastWorkout[]>([]);
   
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
@@ -50,6 +65,8 @@ export default function NewWorkoutPage() {
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().split("T")[0];
   });
+  
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
   
   const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,20 +77,20 @@ export default function NewWorkoutPage() {
   }, []);
 
   useEffect(() => {
-    async function loadExercises() {
+    async function loadData() {
       try {
-        const res = await fetch("/api/exercise");
-        if (res.ok) {
-          const data = await res.json();
-          setExercises(data);
-        } else {
-          console.error(`Failed to fetch exercises: ${res.status} ${res.statusText}`);
-        }
+        const [exRes, workRes] = await Promise.all([
+          fetch("/api/exercise"),
+          fetch("/api/workouts")
+        ]);
+        
+        if (exRes.ok) setExercises(await exRes.json());
+        if (workRes.ok) setPastWorkouts(await workRes.json());
       } catch (error) {
-        console.error("Network error while fetching exercises:", error);
+        console.error("Network error fetching data:", error);
       }
     }
-    loadExercises();
+    loadData();
   }, []);
 
   useEffect(() => {
@@ -91,13 +108,48 @@ export default function NewWorkoutPage() {
 
   const muscleGroups = Array.from(new Set(exercises.map((ex) => ex.muscle_group))).sort();
 
+  const availableExercises = selectedMuscleGroups.length > 0
+    ? exercises.filter(ex => selectedMuscleGroups.includes(ex.muscle_group))
+    : [];
+
+  const toggleMuscleGroup = (group: string) => {
+    setSelectedMuscleGroups((prev) => 
+      prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
+    );
+  };
+
+  const handleCopyWorkout = (workoutId: string) => {
+    setMessage(null);
+    const workoutToCopy = pastWorkouts.find(w => w.id.toString() === workoutId);
+    if (!workoutToCopy) return;
+
+    setName(workoutToCopy.name || "");
+    
+    const requiredMuscles = new Set<string>();
+    
+    // Using the explicit PastWorkoutSet type here
+    const copiedSets = workoutToCopy.sets.map((s: PastWorkoutSet) => {
+      const ex = exercises.find(e => e.id.toString() === s.exerciseId.toString());
+      if (ex) requiredMuscles.add(ex.muscle_group);
+
+      return {
+        id: crypto.randomUUID(),
+        exerciseId: s.exerciseId.toString(),
+        weight: s.weight.toString(),
+        reps: s.reps.toString()
+      };
+    });
+
+    setSelectedMuscleGroups(Array.from(requiredMuscles));
+    setSets(copiedSets);
+  };
+
   const handleAddSet = () => {
     setMessage(null);
     const lastSet = sets[sets.length - 1];
     
     const newSet = { 
       id: crypto.randomUUID(), 
-      muscleGroup: lastSet ? lastSet.muscleGroup : "",
       exerciseId: lastSet ? lastSet.exerciseId : "", 
       weight: "", 
       reps: "" 
@@ -108,15 +160,7 @@ export default function NewWorkoutPage() {
   const handleUpdateSet = (id: string, field: keyof SetRecord, value: string) => {
     setMessage(null);
     setSets(
-      sets.map((set) => {
-        if (set.id === id) {
-          if (field === "muscleGroup") {
-            return { ...set, muscleGroup: value, exerciseId: "" };
-          }
-          return { ...set, [field]: value };
-        }
-        return set;
-      })
+      sets.map((set) => (set.id === id ? { ...set, [field]: value } : set))
     );
   };
 
@@ -138,7 +182,6 @@ export default function NewWorkoutPage() {
 
   const handleCancel = () => {
     const hasChanges = sets.length > 0 || name.trim() !== "" || notes.trim() !== "";
-    
     if (hasChanges) {
       if (window.confirm("You have unsaved changes. Are you sure you want to discard this workout?")) {
         router.push("/");
@@ -186,11 +229,9 @@ export default function NewWorkoutPage() {
         setSets([]);
         setName("");
         setNotes("");
+        setSelectedMuscleGroups([]);
         
-        setTimeout(() => {
-          router.push("/");
-        }, 1500);
-
+        setTimeout(() => router.push("/"), 1500);
       } else {
         const errorData = await res.json();
         setMessage({ text: `Error: ${errorData.error || "Failed to log workout"}`, type: "error" });
@@ -242,7 +283,25 @@ export default function NewWorkoutPage() {
         </div>
       )}
 
-      <div className="bg-white p-6 border rounded-lg shadow-sm mb-6 space-y-4">
+      {pastWorkouts.length > 0 && (
+        <div className="bg-blue-50 p-4 border border-blue-100 rounded-lg mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+          <label className="text-sm font-bold text-blue-800 whitespace-nowrap">Load Past Workout:</label>
+          <select
+            onChange={(e) => handleCopyWorkout(e.target.value)}
+            defaultValue=""
+            className="w-full border-blue-200 rounded px-3 py-2 text-gray-900 bg-white text-sm"
+          >
+            <option value="" disabled>Select a previous session to copy...</option>
+            {pastWorkouts.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name || "Workout"} ({new Date(w.date).toLocaleDateString()})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div className="bg-white p-6 border rounded-lg shadow-sm mb-6 space-y-6">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Workout Name</label>
@@ -274,6 +333,49 @@ export default function NewWorkoutPage() {
             className="w-full border rounded px-3 py-2 text-gray-900 resize-none"
           />
         </div>
+
+        <div className="pt-4 border-t border-gray-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
+            <label className="block text-sm font-medium text-gray-700">Target Muscles (Filters Exercises)</label>
+            
+            <div className="flex flex-wrap gap-1.5">
+              {Object.keys(SPLIT_PRESETS).map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setSelectedMuscleGroups(SPLIT_PRESETS[preset])}
+                  className="text-xs font-medium px-2.5 py-1 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded transition-colors"
+                >
+                  {preset}
+                </button>
+              ))}
+              <button
+                onClick={() => setSelectedMuscleGroups([])}
+                className="text-xs font-medium px-2.5 py-1 text-gray-500 hover:text-gray-800 transition-colors ml-1"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {muscleGroups.map((mg) => {
+              const isSelected = selectedMuscleGroups.includes(mg);
+              return (
+                <button
+                  key={mg}
+                  onClick={() => toggleMuscleGroup(mg)}
+                  className={`text-sm font-medium px-4 py-1.5 rounded-full transition-colors border ${
+                    isSelected 
+                      ? "bg-blue-50 border-blue-200 text-blue-700" 
+                      : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                  }`}
+                >
+                  {mg}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {sets.length === 0 ? (
@@ -293,42 +395,24 @@ export default function NewWorkoutPage() {
                   Set {index + 1}
                 </span>
                 
-                {/* Dropdowns Row */}
-                <div className="flex flex-col sm:flex-row flex-1 w-full sm:w-auto gap-2">
-                  <select
-                    value={set.muscleGroup}
-                    onChange={(e) => handleUpdateSet(set.id, "muscleGroup", e.target.value)}
-                    className="border rounded px-2 py-1.5 text-gray-900 bg-white sm:w-36"
-                  >
-                    <option value="" disabled>Muscle...</option>
-                    {muscleGroups.map((mg) => (
-                      <option key={mg} value={mg}>{mg}</option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={set.exerciseId}
-                    onChange={(e) => handleUpdateSet(set.id, "exerciseId", e.target.value)}
-                    disabled={!set.muscleGroup}
-                    className="border rounded px-2 py-1.5 text-gray-900 bg-white flex-1 min-w-[200px] disabled:bg-gray-50 disabled:text-gray-400"
-                  >
-                    <option value="" disabled>
-                      {set.muscleGroup ? "Select Exercise..." : "Pick Muscle First"}
+                <select
+                  value={set.exerciseId}
+                  onChange={(e) => handleUpdateSet(set.id, "exerciseId", e.target.value)}
+                  disabled={selectedMuscleGroups.length === 0}
+                  className="border rounded px-2 py-1.5 text-gray-900 bg-white flex-1 w-full sm:w-auto disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="" disabled>
+                    {selectedMuscleGroups.length === 0 ? "Pick Target Muscles Above..." : "Select Exercise..."}
+                  </option>
+                  {availableExercises.map((ex) => (
+                    <option key={ex.id} value={ex.id}>
+                      {ex.name}
                     </option>
-                    {exercises
-                      .filter((ex) => ex.muscle_group === set.muscleGroup)
-                      .map((ex) => (
-                        <option key={ex.id} value={ex.id}>
-                          {ex.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                  ))}
+                </select>
 
-                {/* Numbers Row */}
                 <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-start">
                   
-                  {/* Smart Weight Stepper */}
                   <div className="flex items-center">
                     <label className="text-sm text-gray-600 mr-2">Lbs</label>
                     <div className="flex items-center border rounded overflow-hidden bg-white">
@@ -358,7 +442,6 @@ export default function NewWorkoutPage() {
                     </div>
                   </div>
 
-                  {/* Reps Dropdown */}
                   <div className="flex items-center gap-2">
                     <label className="text-sm text-gray-600">Reps</label>
                     <select
@@ -380,7 +463,6 @@ export default function NewWorkoutPage() {
                     X
                   </button>
                 </div>
-
               </div>
             );
           })}
